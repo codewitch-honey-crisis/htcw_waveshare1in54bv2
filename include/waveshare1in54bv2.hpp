@@ -146,7 +146,6 @@ namespace arduino {
         void(*m_deallocator)(void*);
         frame_buffer_type m_frame_buffer;
         int m_suspend_count;
-        gfx::rect16 m_suspend_bounds;
         bool m_sleep;
         bool m_dithering;
         bool m_initialized;
@@ -155,16 +154,11 @@ namespace arduino {
         waveshare1in54bv2& operator=(const waveshare1in54bv2& rhs)=delete;
         void wait_busy(uint16_t ms) {
             if (pin_wait >= 0) {
-                uint32_t ts = millis();
-                while (true) {
-                    if (!digitalRead(pin_wait)) {
-                        return;
-                    }
-                    delay(1);
-                    if (millis() - ts > 5000) {
-                        return;
-                    }
-                }
+                while(true) {
+                    if(digitalRead(pin_wait) == 0)
+                        break;
+                    delay(100);
+                }   
             } 
             delay(ms);
         }
@@ -248,24 +242,6 @@ namespace arduino {
             return gfx::gfx_result::success;
         }
         
-        static void expand_rect(gfx::rect16& dst,const gfx::rect16& src) {
-            if(dst.x1==uint16_t(-1)) {
-                dst=src;
-            } else {
-                if(src.x1<dst.x1) {
-                    dst.x1 = src.x1;
-                }
-                if(src.x2>dst.x2) {
-                    dst.x2 = src.x2;
-                }
-                if(src.y1<dst.y1) {
-                    dst.y1 = src.y1;
-                }
-                if(src.y2>dst.y2) {
-                    dst.y2 = src.y2;
-                }
-            }
-        }
         public:
         waveshare1in54bv2(waveshare1in54bv2&& rhs) {
             m_allocator = rhs.m_allocator;
@@ -273,7 +249,6 @@ namespace arduino {
             m_deallocator = rhs.m_deallocator;
             m_frame_buffer = rhs.m_frame_buffer;
             m_suspend_count = rhs.m_suspend_count;
-            m_suspend_bounds = rhs.m_suspend_bounds;
             m_sleep = rhs.m_sleep;
             m_dithering = rhs.m_dithering;
             m_initialized = rhs.m_initialized;
@@ -285,7 +260,6 @@ namespace arduino {
             m_deallocator = rhs.m_deallocator;
             m_frame_buffer = rhs.m_frame_buffer;
             m_suspend_count = rhs.m_suspend_count;
-            m_suspend_bounds = rhs.m_suspend_bounds;
             m_sleep = rhs.m_sleep;
             m_dithering = rhs.m_dithering;
             m_initialized = rhs.m_initialized;
@@ -359,7 +333,16 @@ namespace arduino {
             }
         }
         inline bool initialized() const { return m_initialized; }
-        
+        void sleep() {
+            if(!m_initialized || m_sleep) {
+                return;
+            }
+            m_sleep = true;
+            bus_driver::send_command(0x10);         //power setting
+            bus_driver::send_data8(0x01);        //gate switch to external
+            delay(100);
+
+        }
         void reset() {
             if(pin_rst!=-1) {
                 digitalWrite(pin_rst, LOW);
@@ -374,7 +357,6 @@ namespace arduino {
                 m_deallocator(deallocator),
                 m_frame_buffer(dimensions(),1,nullptr,allocator,deallocator),
                 m_suspend_count(0),
-                m_suspend_bounds(uint16_t(-1),uint16_t(-1),uint16_t(-1),uint16_t(-1)),
                 m_sleep(false),
                 m_dithering(dithered),
                 m_initialized(false) {
@@ -400,7 +382,6 @@ namespace arduino {
             if(force || 0==--m_suspend_count) {
                 m_suspend_count = 0;
                 gfx::gfx_result r = update_display(); 
-                m_suspend_bounds = {uint16_t(-1),uint16_t(-1),uint16_t(-1),uint16_t(-1)};
                 if(r!=gfx::gfx_result::success) {
                     m_suspend_count=os; // undo decrement
                     return r;
@@ -416,14 +397,12 @@ namespace arduino {
             if(r!=gfx::gfx_result::success) {
                 return r;
             }
-            expand_rect(m_suspend_bounds,{location.x,location.y,location.x,location.y});
-            m_frame_buffer.point(location,color);
+             m_frame_buffer.point(location,color);
             if(!m_suspend_count) {
                 r= update_display();
                 if(r!=gfx::gfx_result::success) {
                     return r;
                 }
-                m_suspend_bounds = {uint16_t(-1),uint16_t(-1),uint16_t(-1),uint16_t(-1)};
             }
             return gfx::gfx_result::success;
         }
@@ -435,20 +414,17 @@ namespace arduino {
             if(!this->bounds().intersects(bounds)) {
                 return gfx::gfx_result::success;
             }
-            gfx::rect16 rr = bounds.normalize().crop(this->bounds());
             gfx::gfx_result r = initialize();
             
             if(r!=gfx::gfx_result::success) {
                 return r;
             }
-            expand_rect(m_suspend_bounds,rr);
             m_frame_buffer.fill(bounds,color);
             if(!m_suspend_count) {
                 r= update_display();
                 if(r!=gfx::gfx_result::success) {
                     return r;
                 }
-                m_suspend_bounds = {uint16_t(-1),uint16_t(-1),uint16_t(-1),uint16_t(-1)};
             }
             return gfx::gfx_result::success;
         }
