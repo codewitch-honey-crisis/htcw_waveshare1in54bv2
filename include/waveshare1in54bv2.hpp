@@ -427,6 +427,10 @@ namespace arduino {
             }
             return gfx::gfx_result::success;
         }
+        inline gfx::gfx_result clear(const gfx::rect16& bounds) {
+            pixel_type px;
+            return fill(bounds,px);
+        }
         gfx::gfx_result fill(const gfx::rect16& bounds,pixel_type color) {
             if(!this->bounds().intersects(bounds)) {
                 return gfx::gfx_result::success;
